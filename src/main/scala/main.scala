@@ -40,13 +40,13 @@ class SyntaxSink
         doIndent = true
     }
     
-    def inScope( more : => Unit )
+    def inScope( contents : => Unit )
     {
         eol()
         push("{")
         eol()
         indent += 1
-        more
+        contents
         indent -= 1
         push("}")
         eol()
@@ -203,11 +203,12 @@ case class MethodCallExpr( val theObj : ExprType, val methName : String, val arg
 // TODO: Fold in member function definitions
 abstract class EntityDefinition extends ExprType
 
-case class ValueDefinition( val name : String, val modifier : ValueModifierTag, val vType : Option[AnyTypeType], val expression : Option[ExprType], isLazy : Boolean ) extends EntityDefinition
+case class ValueDefinition( val name : String, val accessModifier: AccessModifierTag, val modifier : ValueModifierTag, val vType : Option[AnyTypeType], val expression : Option[ExprType], isLazy : Boolean ) extends EntityDefinition
 {
     def output( s : SyntaxSink )
     {
         // val blah : Double = 12.0
+        accessModifier.output(s)
         if ( isLazy ) s.push( "lazy" )
         modifier.output(s)
         s.push(name)
@@ -224,7 +225,7 @@ case class ValueDefinition( val name : String, val modifier : ValueModifierTag, 
     }
 }
 
-case class MethodDefinition( val name : String, val accessModifier : AccessModifierTag, val params : List[ValueDefinition], val retType : Option[ExprType], val body : Some[ExprType] ) extends EntityDefinition
+case class MethodDefinition( val name : String, val accessModifier : AccessModifierTag, val params : List[ValueDefinition], val retType : Option[AnyTypeType], val body : Option[ExprType] ) extends EntityDefinition
 {
     def output( s : SyntaxSink )
     {
@@ -240,9 +241,12 @@ case class MethodDefinition( val name : String, val accessModifier : AccessModif
             s.push(":")
             t.output(s)
         } )
-        s.push("=")
-        body.foreach( _.output(s) )
-        s.eol()
+
+        body.foreach( b =>
+        {
+            s.push("=")
+            b.output(s)
+        } )
     }
 }
 
@@ -273,13 +277,7 @@ class ConcreteType(
         name.foreach( n => s.push(n) )
         
         s.push("(")
-        var first = true
-        ctorParams.foreach( p => {
-            if ( first ) first = false
-            else s.push(",")
-
-            p.output(s)
-        } )
+        s.commaSeparated( ctorParams )
         s.push(")")
         
         superType.foreach( t =>
@@ -296,7 +294,11 @@ class ConcreteType(
         
         s inScope
         {
-            definitions.foreach( v => v.output(s) )
+            definitions.foreach( v =>
+            {
+                v.output(s)
+                s.eol()
+            } )
         }
     }
 }
@@ -369,6 +371,8 @@ object Main extends scala.App
             obj.apply( a, b )
         }
     }
+    
+    
 
     override def main(args : Array[String])
     {
@@ -377,15 +381,73 @@ object Main extends scala.App
             val s = new SyntaxSink()
             val ct = new ConcreteType( Some("Blah"), new PrivateAccessTag(), new TypeModifierTag( isFinal=true, isSealed=false ), new ClassKindTag(), List(), None, List() )
             // ValueDefinition( val name : String, val modifier : ValueModifierTag, val vType : Option[AnyTypeType], val expression : Option[ExprType] )
-            ct.definitions.append( new ValueDefinition( "a", new VarValueTag(), Some( new IntType() ), None, false ) )
-            ct.definitions.append( new ValueDefinition( "b", new VarValueTag(), Some( new IntType() ), Some( new ConstantExpr(3) ), false ) )
-            ct.definitions.append( new ValueDefinition( "c", new ValValueTag(), None, Some( new ConstantExpr(5) ), false ) )
+            ct.definitions.append( new ValueDefinition( "a", new PublicAccessTag(), new VarValueTag(), Some( new IntType() ), None, false ) )
+            ct.definitions.append( new ValueDefinition( "b", new PublicAccessTag(), new VarValueTag(), Some( new IntType() ), Some( new ConstantExpr(3) ), false ) )
+            ct.definitions.append( new ValueDefinition( "c", new PublicAccessTag(), new ValValueTag(), None, Some( new ConstantExpr(5) ), false ) )
             ct.output(s)
             
             val tg = new TypeGenerator( "Foo", Some("Blah"), List() )
             for ( e <- tg.exhaustive )
             {
                 e.output(s)
+            }
+        }
+        
+        // Inherit anything from anything
+        {
+            val s = new SyntaxSink()
+            val tg = new TypeGenerator(name="Base", superType=None, mixins=List() )
+            
+        
+            for ( bat <- List[AccessModifierTag]( new PrivateAccessTag(), new PublicAccessTag(), new ProtectedAccessTag() ) )
+            {
+                for ( dat <- List[AccessModifierTag]( new PrivateAccessTag(), new PublicAccessTag(), new ProtectedAccessTag() ) )
+                {
+                    // Override with val, lazy val, def
+                    val overrides = List(
+                        new ValueDefinition(
+                            name="fn",
+                            accessModifier=dat,
+                            modifier= new ValValueTag(),
+                            vType=Some( new IntType() ),
+                            expression=Some( new ConstantExpr( 3 ) ),
+                            isLazy=false ),
+                        new ValueDefinition(
+                            name="fn",
+                            accessModifier=dat,
+                            modifier= new ValValueTag(),
+                            vType=Some( new IntType() ),
+                            expression = Some( new ConstantExpr( 3 ) ),
+                            isLazy=false ),
+                        new MethodDefinition(
+                            name="fn",
+                            accessModifier=dat,
+                            params=List(),
+                            retType=Some( new IntType() ),
+                            body=Some( new ConstantExpr(3) ) ) )
+                            
+                    for ( ot <- overrides )
+                    {
+                        for ( b <- tg.exhaustive )
+                        {
+                            // Function to be overriden
+                            b.definitions.append( new MethodDefinition(
+                                name="fn",
+                                accessModifier=bat,
+                                params=List(),
+                                retType=Some( new IntType() ),
+                                body=None) )
+                            
+                            for ( d <- (new TypeGenerator("Derived", superType=Some("Base"), mixins=List() ) ).exhaustive )
+                            {
+                                d.definitions.append( ot )
+                                
+                                b.output(s)
+                                d.output(s)
+                            }
+                        }
+                    }
+                }
             }
         }
         
@@ -398,23 +460,23 @@ object Main extends scala.App
             
             val ctd2 = new ConcreteType( Some("D2"), new PublicAccessTag(), new TypeModifierTag( false, false ), new ClassKindTag(), List(), Some("D1"), List() )
             
-            val innerClass = new ConcreteType( Some("Inner"), new PublicAccessTag(), new TypeModifierTag( true, true ), new ClassKindTag(), List( new ValueDefinition( "increment", new NoneValueTag(), Some( new IntType() ), None, false ) ), None, List() )
+            val innerClass = new ConcreteType( Some("Inner"), new PublicAccessTag(), new TypeModifierTag( true, true ), new ClassKindTag(), List( new ValueDefinition( "increment", new PublicAccessTag(), new NoneValueTag(), Some( new IntType() ), None, false ) ), None, List() )
             innerClass.definitions.append( new MethodDefinition( "apply", new PublicAccessTag(), List(
-                new ValueDefinition( "x", new NoneValueTag(), Some( new IntType() ), None, false ) ),
+                new ValueDefinition( "x", new PublicAccessTag(), new NoneValueTag(), Some( new IntType() ), None, false ) ),
                 None,
                 Some( new BinOpExpr( new IdentExpr( "increment" ), new IdentExpr( "x" ), "+" ) ) ) )
             
             ct.definitions.append( new MethodDefinition( "fn", new PublicAccessTag(), List(
-                new ValueDefinition( "a", new NoneValueTag(), Some( new IntType() ), None, false ),
-                new ValueDefinition( "b", new NoneValueTag(), Some( new IntType() ), None, false ),
-                new ValueDefinition( "c", new NoneValueTag(), Some( new IntType() ), None, false ) ),
+                new ValueDefinition( "a", new PublicAccessTag(), new NoneValueTag(), Some( new IntType() ), None, false ),
+                new ValueDefinition( "b", new PublicAccessTag(), new NoneValueTag(), Some( new IntType() ), None, false ),
+                new ValueDefinition( "c", new PublicAccessTag(), new NoneValueTag(), Some( new IntType() ), None, false ) ),
                 None,
                 Some( new BlockExpr( List(
                     new ConcreteTypeDefinition( innerClass ),
-                    new ValueDefinition( "op", new ValValueTag(), None, Some(
+                    new ValueDefinition( "op", new PublicAccessTag(), new ValValueTag(), None, Some(
                         new NewExpr( "Inner", List( new IdentExpr("a") ) ) ), false ),
  
-                    new ValueDefinition( "res", new ValValueTag(), None, Some(
+                    new ValueDefinition( "res", new PublicAccessTag(), new ValValueTag(), None, Some(
                         new MethodCallExpr( new IdentExpr("op"), "apply", List( new IdentExpr("b") ) ) ), true ),
 
                     new BinOpExpr( new IdentExpr( "res" ), new IdentExpr("c"), "*" )
