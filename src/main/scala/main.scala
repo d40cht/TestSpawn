@@ -144,11 +144,6 @@ class ConcreteType( val name : Option[String], val accessModifier : AccessModifi
     var valueDefinitions = mutable.ArrayBuffer[ValueDefinition]()
     def output( s : SyntaxSink )
     {
-        // private sealed abstract class Blah( val a : Double, val b : Int )
-        // {
-        //    val q = a + b
-        // }
-        
         accessModifier.output(s)
         modifier.output(s)
         kind.output(s)
@@ -157,6 +152,22 @@ class ConcreteType( val name : Option[String], val accessModifier : AccessModifi
         {
             valueDefinitions.foreach( v => v.output(s) )
         }
+    }
+}
+
+class TypeGenerator( val name : String )
+{
+    def exhaustive =
+    {
+        val accessModifiers = Array( new PrivateAccessTag(), new PublicAccessTag(), new ProtectedAccessTag() )
+        val modifiers = Array(
+            new TypeModifierTag( false, false ),
+            new TypeModifierTag( false, true ),
+            new TypeModifierTag( true, false ),
+            new TypeModifierTag( false, false ) )
+        val kinds = Array( new TraitKindTag(), new ObjectKindTag(), new ClassKindTag(), new AbstractClassKindTag() )
+        
+        for ( am <- accessModifiers; m <- modifiers; k <- kinds ) yield new ConcreteType( Some(name), am, m, k )
     }
 }
 
@@ -171,6 +182,12 @@ object Main extends scala.App
         ct.valueDefinitions.append( new ValueDefinition( "b", new VarValueTag(), Some( new DoubleType() ), Some( new ConstantExpr(3.0) ) ) )
         ct.valueDefinitions.append( new ValueDefinition( "c", new ValValueTag(), None, Some( new ConstantExpr(5.0) ) ) )
         ct.output(s)
+        
+        val tg = new TypeGenerator( "Foo" )
+        for ( e <- tg.exhaustive )
+        {
+            e.output(s)
+        }
     }
 }
 
