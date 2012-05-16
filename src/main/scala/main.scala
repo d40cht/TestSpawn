@@ -3,16 +3,6 @@ import scala.collection.{mutable, immutable}
 // Paul P:
 
 /*
-   Initial focus:
-   
-   * Lazy vals
-   * By-name parameters
-   * Closures
-   * Anything defined in a method
-   * Anything defined in an anonymous class
-   * Anything with default arguments
-   * Anything which uses the pattern matcher
-   * Anything with structural types.
    
    Notes:
    
@@ -61,6 +51,17 @@ class SyntaxSink
         push("}")
         eol()
     }
+    
+    def commaSeparated( els : Seq[SyntaxGenerator] )
+    {
+        var first = true
+        els.foreach( e =>
+        {
+            if ( first ) first = false
+            else push(",")
+            e.output(this)
+        } )
+    }
 }
 
 
@@ -93,6 +94,16 @@ case class PrivateAccessTag extends AccessModifierTag { def output( s : SyntaxSi
 case class ProtectedAccessTag extends AccessModifierTag { def output( s : SyntaxSink ) { s.push( "protected" ) } }
 case class PublicAccessTag extends AccessModifierTag { def output( s : SyntaxSink ) { s.push( "public" ) } }
 
+
+case class TupleType( val elements : List[ExprType] ) extends AnyRefType
+{
+    def output( s : SyntaxSink )
+    {
+        s.push("(")
+        s.commaSeparated(elements)
+        s.push(")")
+    }
+}
 
 class TypeModifierTag( val isFinal : Boolean, val isSealed : Boolean ) extends SyntaxGenerator
 {
@@ -170,13 +181,7 @@ case class NewExpr( val toCreate : String, val args : List[ExprType] ) extends E
         s.push( "new" )
         s.push( toCreate )
         s.push("(")
-        var first = true
-        args.foreach( a =>
-        {
-            if ( !first ) s.push(",")
-            else first = false
-            a.output(s)
-        } )
+        s.commaSeparated(args)
         s.push(")")
     }
 }
@@ -189,13 +194,7 @@ case class MethodCallExpr( val theObj : ExprType, val methName : String, val arg
         s.push(".")
         s.push( methName )
         s.push("(")
-        var first = true
-        args.foreach( a =>
-        {
-            if ( !first ) s.push(",")
-            else first = false
-            a.output(s)
-        } )
+        s.commaSeparated(args)
         s.push(")")
     }
 }
@@ -234,13 +233,7 @@ case class MethodDefinition( val name : String, val accessModifier : AccessModif
         s.push( "def" )
         s.push( name )
         s.push("(")
-        var first = true
-        params.foreach( p => {
-            if ( first ) first = false
-            else s.push(",")
-
-            p.output(s)
-        } )
+        s.commaSeparated(params)
         s.push(")")
         retType.foreach( t =>
         {
@@ -248,7 +241,7 @@ case class MethodDefinition( val name : String, val accessModifier : AccessModif
             t.output(s)
         } )
         s.push("=")
-        body.foreach( b => b.output(s) )
+        body.foreach( _.output(s) )
         s.eol()
     }
 }
@@ -326,6 +319,57 @@ class TypeGenerator( val name : String, val superType : Option[String], val mixi
 
 object Main extends scala.App
 {
+    
+/*
+   Initial focus:
+   
+   * Lazy vals
+   * By-name parameters
+   * Closures
+   * Anything defined in a method
+   * Anything defined in an anonymous class
+   * Anything with default arguments
+   * Anything which uses the pattern matcher
+   * Anything with structural types.
+*/
+
+    def test()
+    {
+        // Anonymous classes
+        trait X
+        trait Y
+        
+        def a = new
+        {
+            def dump( v : String )
+            {
+                print(v)
+            }
+        }
+        
+        a.dump("ook")
+        
+        def b = new X with Y
+        {
+            def dump( v : String )
+            {
+                println(v)
+            }
+        }
+        
+        // By name parameters
+        def fn2( f : => Int )
+        {
+            val b : Int = f
+        }
+        
+        // Structural types
+        def call( a : Int, b : Int, obj : { def apply( x : Int, y : Int ) : Int } ) =
+        {
+            obj.apply( a, b )
+        }
+    }
+
     override def main(args : Array[String])
     {
         // A class and exhaustive inheritance
