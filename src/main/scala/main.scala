@@ -76,7 +76,7 @@ case class BooleanType extends AnyValType { def output( s : SyntaxSink ) { s.pus
 case class UnitType extends AnyValType { def output( s : SyntaxSink ) { s.push( "Unit" ) } }
 
 // AnyRef
-trait AnyRef extends AnyTypeType
+trait AnyRefType extends AnyTypeType
 
 trait AccessModifierTag extends SyntaxGenerator
 case class PrivateAccessTag extends AccessModifierTag { def output( s : SyntaxSink ) { s.push( "private" ) } }
@@ -139,7 +139,13 @@ class ValueDefinition( val name : String, val modifier : ValueModifierTag, val v
 
 // TODO: inheritance (extends and with)
 // TODO: type parameters (generics with all the sorts of type constraints etc.)
-class ConcreteType( val name : Option[String], val accessModifier : AccessModifierTag, val modifier : TypeModifierTag, val kind : TypeKindTag ) extends AnyRef
+class ConcreteType(
+    val name : Option[String],
+    val accessModifier : AccessModifierTag,
+    val modifier : TypeModifierTag,
+    val kind : TypeKindTag,
+    val superType : Option[String],
+    val mixins : List[String] ) extends AnyRefType
 {
     var valueDefinitions = mutable.ArrayBuffer[ValueDefinition]()
     def output( s : SyntaxSink )
@@ -148,6 +154,18 @@ class ConcreteType( val name : Option[String], val accessModifier : AccessModifi
         modifier.output(s)
         kind.output(s)
         name.foreach( n => s.push(n) )
+        superType.foreach( t =>
+        {
+            s.push("extends")
+            s.push(t)
+        } )
+        
+        mixins.foreach( t =>
+        {
+            s.push("with")
+            s.push(t)
+        } )
+        
         s inScope
         {
             valueDefinitions.foreach( v => v.output(s) )
@@ -155,7 +173,7 @@ class ConcreteType( val name : Option[String], val accessModifier : AccessModifi
     }
 }
 
-class TypeGenerator( val name : String )
+class TypeGenerator( val name : String, val superType : Option[String], val mixins : List[String] )
 {
     def exhaustive =
     {
@@ -167,7 +185,7 @@ class TypeGenerator( val name : String )
             new TypeModifierTag( false, false ) )
         val kinds = Array( new TraitKindTag(), new ObjectKindTag(), new ClassKindTag(), new AbstractClassKindTag() )
         
-        for ( am <- accessModifiers; m <- modifiers; k <- kinds ) yield new ConcreteType( Some(name), am, m, k )
+        for ( am <- accessModifiers; m <- modifiers; k <- kinds ) yield new ConcreteType( Some(name), am, m, k, superType, mixins )
     }
 }
 
@@ -176,14 +194,14 @@ object Main extends scala.App
     override def main(args : Array[String])
     {
         val s = new SyntaxSink()
-        val ct = new ConcreteType( Some("Blah"), new PrivateAccessTag(), new TypeModifierTag( isFinal=true, isSealed=false ), new ClassKindTag() )
+        val ct = new ConcreteType( Some("Blah"), new PrivateAccessTag(), new TypeModifierTag( isFinal=true, isSealed=false ), new ClassKindTag(), None, List() )
         // ValueDefinition( val name : String, val modifier : ValueModifierTag, val vType : Option[AnyTypeType], val expression : Option[ExprType] )
         ct.valueDefinitions.append( new ValueDefinition( "a", new VarValueTag(), Some( new DoubleType() ), None ) )
         ct.valueDefinitions.append( new ValueDefinition( "b", new VarValueTag(), Some( new DoubleType() ), Some( new ConstantExpr(3.0) ) ) )
         ct.valueDefinitions.append( new ValueDefinition( "c", new ValValueTag(), None, Some( new ConstantExpr(5.0) ) ) )
         ct.output(s)
         
-        val tg = new TypeGenerator( "Foo" )
+        val tg = new TypeGenerator( "Foo", Some("Blah"), List() )
         for ( e <- tg.exhaustive )
         {
             e.output(s)
