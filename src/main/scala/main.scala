@@ -3,7 +3,16 @@ import scala.collection.{mutable, immutable}
 // Paul P:
 
 /*
-   Initial focus: lazy vals, by-name parameters, closures, anything defined in a method, anything defined in an anonymous class, anything with default arguments, anything which uses the pattern matcher, anything with structural types.
+   Initial focus:
+   
+   * Lazy vals
+   * By-name parameters
+   * Closures
+   * Anything defined in a method
+   * Anything defined in an anonymous class
+   * Anything with default arguments
+   * Anything which uses the pattern matcher
+   * Anything with structural types.
    
    Notes:
    
@@ -11,6 +20,7 @@ import scala.collection.{mutable, immutable}
  - clearly it wouldn't be hard to take n^n far enough that exhaustion becomes impossible.  That's fine too; the next step would be to have a filtering mechanism so one can use a predicate to reduce the space to more interesting cases.
  -  you could get a long and super useful already ways just doing something like I did in the primitive version, smooshing strings together.  But it gets too hard to test anything nontrivial, like "this type parameter has that type parameter as one of its bounds and then..." but many of our bugs require things to refer to one another like that.
  - one could consider doing this with real scala AST (DefDef, ClassDef, etc) rather than generating source from scratch.  I don't like that idea because I think it falls to "regulatory capture" - by assuming the language of the compiler, one becomes blind to whole categories of bugs.
+
 */
 
 
@@ -107,7 +117,7 @@ case class VarValueTag extends ValueModifierTag { def output( s : SyntaxSink ) {
 case class NoneValueTag extends ValueModifierTag { def output( s : SyntaxSink ) {} }
 
 trait ExprType extends SyntaxGenerator
-case class ConstantExpr( val value : Double ) extends ExprType
+case class ConstantExpr( val value : Int ) extends ExprType
 {
     def output( s : SyntaxSink )
     {
@@ -115,8 +125,49 @@ case class ConstantExpr( val value : Double ) extends ExprType
     }
 }
 
+case class BinOpExpr( val lhs : ExprType, val rhs : ExprType, val fnName : String ) extends ExprType
+{
+    def output( s : SyntaxSink )
+    {
+        lhs.output(s)
+        s.push( fnName )
+        rhs.output(s)
+    }
+}
+
+// Should really be an apply to deal properly with partial application
+//case class FnCallExpr( val fn : ExprType, val args : List[ExprType] ) extends ExprType
+//{
+//}
+
+case class BlockExpr( val contents : List[ExprType] ) extends ExprType
+{
+    def output( s : SyntaxSink )
+    {
+        s.inScope
+        {
+            contents.foreach(
+            {
+                c => c.output(s)
+                s.eol()
+            } )
+        }
+    }
+}
+
+case class IdentExpr( val id : String ) extends ExprType
+{
+    def output( s : SyntaxSink )
+    {
+        s.push(id)
+    }
+}
+
+
 // TODO: Fold in member function definitions
-class ValueDefinition( val name : String, val modifier : ValueModifierTag, val vType : Option[AnyTypeType], val expression : Option[ExprType] )
+abstract class MethodValueDefinition extends ExprType
+
+case class ValueDefinition( val name : String, val modifier : ValueModifierTag, val vType : Option[AnyTypeType], val expression : Option[ExprType] ) extends MethodValueDefinition
 {
     def output( s : SyntaxSink )
     {
@@ -133,11 +184,38 @@ class ValueDefinition( val name : String, val modifier : ValueModifierTag, val v
             s.push("=")
             e.output(s)
         } )
+    }
+}
+
+case class MethodDefinition( val name : String, val accessModifier : AccessModifierTag, val params : List[ValueDefinition], val retType : Option[ExprType], val body : Some[ExprType] ) extends MethodValueDefinition
+{
+    def output( s : SyntaxSink )
+    {
+        //def blah( a : Int, b : Double ) = {}
+        accessModifier.output(s)
+        s.push( "def" )
+        s.push( name )
+        s.push("(")
+        var first = true
+        params.foreach( {
+            if ( !first ) s.push(",")
+            else first = false
+
+            p => p.output(s)
+        } )
+        s.push(")")
+        retType.foreach( t =>
+        {
+            s.push(":")
+            t.output(s)
+        } )
+        s.push("=")
+        body.foreach( b => b.output(s) )
         s.eol()
     }
 }
 
-// TODO: inheritance (extends and with)
+
 // TODO: type parameters (generics with all the sorts of type constraints etc.)
 class ConcreteType(
     val name : Option[String],
@@ -147,7 +225,7 @@ class ConcreteType(
     val superType : Option[String],
     val mixins : List[String] ) extends AnyRefType
 {
-    var valueDefinitions = mutable.ArrayBuffer[ValueDefinition]()
+    var valueDefinitions = mutable.ArrayBuffer[MethodValueDefinition]()
     def output( s : SyntaxSink )
     {
         accessModifier.output(s)
@@ -193,18 +271,42 @@ object Main extends scala.App
 {
     override def main(args : Array[String])
     {
-        val s = new SyntaxSink()
-        val ct = new ConcreteType( Some("Blah"), new PrivateAccessTag(), new TypeModifierTag( isFinal=true, isSealed=false ), new ClassKindTag(), None, List() )
-        // ValueDefinition( val name : String, val modifier : ValueModifierTag, val vType : Option[AnyTypeType], val expression : Option[ExprType] )
-        ct.valueDefinitions.append( new ValueDefinition( "a", new VarValueTag(), Some( new DoubleType() ), None ) )
-        ct.valueDefinitions.append( new ValueDefinition( "b", new VarValueTag(), Some( new DoubleType() ), Some( new ConstantExpr(3.0) ) ) )
-        ct.valueDefinitions.append( new ValueDefinition( "c", new ValValueTag(), None, Some( new ConstantExpr(5.0) ) ) )
-        ct.output(s)
-        
-        val tg = new TypeGenerator( "Foo", Some("Blah"), List() )
-        for ( e <- tg.exhaustive )
         {
-            e.output(s)
+            val s = new SyntaxSink()
+            val ct = new ConcreteType( Some("Blah"), new PrivateAccessTag(), new TypeModifierTag( isFinal=true, isSealed=false ), new ClassKindTag(), None, List() )
+            // ValueDefinition( val name : String, val modifier : ValueModifierTag, val vType : Option[AnyTypeType], val expression : Option[ExprType] )
+            ct.valueDefinitions.append( new ValueDefinition( "a", new VarValueTag(), Some( new IntType() ), None ) )
+            ct.valueDefinitions.append( new ValueDefinition( "b", new VarValueTag(), Some( new IntType() ), Some( new ConstantExpr(3) ) ) )
+            ct.valueDefinitions.append( new ValueDefinition( "c", new ValValueTag(), None, Some( new ConstantExpr(5) ) ) )
+            ct.output(s)
+            
+            val tg = new TypeGenerator( "Foo", Some("Blah"), List() )
+            for ( e <- tg.exhaustive )
+            {
+                e.output(s)
+            }
+        }
+        
+        {
+            val s = new SyntaxSink()
+            val ct = new ConcreteType( Some("Base"), new PublicAccessTag(), new TypeModifierTag( false, false ), new AbstractClassKindTag(), None, List() )
+            
+            val ctd1 = new ConcreteType( Some("D1"), new PublicAccessTag(), new TypeModifierTag( false, false ), new AbstractClassKindTag(), Some("Base"), List() )
+            
+            val ctd2 = new ConcreteType( Some("D2"), new PublicAccessTag(), new TypeModifierTag( false, false ), new ClassKindTag(), Some("D1"), List() )
+            ct.valueDefinitions.append( new MethodDefinition( "fn", new PublicAccessTag(), List(
+                new ValueDefinition( "a", new NoneValueTag(), Some( new IntType() ), None ),
+                new ValueDefinition( "b", new NoneValueTag(), Some( new IntType() ), None ) ),
+                None,
+                Some( new BlockExpr( List(
+                    new ValueDefinition( "res", new ValValueTag(), None, Some(
+                        new BinOpExpr( new IdentExpr("a"), new IdentExpr("b"), "+" ) ) ),
+                    new IdentExpr( "res" ) )
+                ) ) ) )
+            
+            ct.output(s)
+            ctd1.output(s)
+            ctd2.output(s)
         }
     }
 }
