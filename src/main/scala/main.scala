@@ -163,15 +163,53 @@ case class IdentExpr( val id : String ) extends ExprType
     }
 }
 
+case class NewExpr( val toCreate : String, val args : List[ExprType] ) extends ExprType
+{
+    def output( s : SyntaxSink )
+    {
+        s.push( "new" )
+        s.push( toCreate )
+        s.push("(")
+        var first = true
+        args.foreach( a =>
+        {
+            if ( !first ) s.push(",")
+            else first = false
+            a.output(s)
+        } )
+        s.push(")")
+    }
+}
+
+case class MethodCallExpr( val theObj : ExprType, val methName : String, val args : List[ExprType] ) extends ExprType
+{
+    def output( s : SyntaxSink )
+    {
+        theObj.output(s)
+        s.push(".")
+        s.push( methName )
+        s.push("(")
+        var first = true
+        args.foreach( a =>
+        {
+            if ( !first ) s.push(",")
+            else first = false
+            a.output(s)
+        } )
+        s.push(")")
+    }
+}
+
 
 // TODO: Fold in member function definitions
-abstract class MethodValueDefinition extends ExprType
+abstract class EntityDefinition extends ExprType
 
-case class ValueDefinition( val name : String, val modifier : ValueModifierTag, val vType : Option[AnyTypeType], val expression : Option[ExprType] ) extends MethodValueDefinition
+case class ValueDefinition( val name : String, val modifier : ValueModifierTag, val vType : Option[AnyTypeType], val expression : Option[ExprType], isLazy : Boolean ) extends EntityDefinition
 {
     def output( s : SyntaxSink )
     {
         // val blah : Double = 12.0
+        if ( isLazy ) s.push( "lazy" )
         modifier.output(s)
         s.push(name)
         vType.foreach( v =>
@@ -187,7 +225,7 @@ case class ValueDefinition( val name : String, val modifier : ValueModifierTag, 
     }
 }
 
-case class MethodDefinition( val name : String, val accessModifier : AccessModifierTag, val params : List[ValueDefinition], val retType : Option[ExprType], val body : Some[ExprType] ) extends MethodValueDefinition
+case class MethodDefinition( val name : String, val accessModifier : AccessModifierTag, val params : List[ValueDefinition], val retType : Option[ExprType], val body : Some[ExprType] ) extends EntityDefinition
 {
     def output( s : SyntaxSink )
     {
@@ -197,11 +235,11 @@ case class MethodDefinition( val name : String, val accessModifier : AccessModif
         s.push( name )
         s.push("(")
         var first = true
-        params.foreach( {
-            if ( !first ) s.push(",")
-            else first = false
+        params.foreach( p => {
+            if ( first ) first = false
+            else s.push(",")
 
-            p => p.output(s)
+            p.output(s)
         } )
         s.push(")")
         retType.foreach( t =>
@@ -215,6 +253,13 @@ case class MethodDefinition( val name : String, val accessModifier : AccessModif
     }
 }
 
+case class ConcreteTypeDefinition( val concreteType : ConcreteType ) extends EntityDefinition
+{
+    def output( s : SyntaxSink )
+    {
+        concreteType.output(s)
+    }
+}
 
 // TODO: type parameters (generics with all the sorts of type constraints etc.)
 class ConcreteType(
@@ -222,16 +267,28 @@ class ConcreteType(
     val accessModifier : AccessModifierTag,
     val modifier : TypeModifierTag,
     val kind : TypeKindTag,
+    val ctorParams : List[ValueDefinition],
     val superType : Option[String],
     val mixins : List[String] ) extends AnyRefType
 {
-    var valueDefinitions = mutable.ArrayBuffer[MethodValueDefinition]()
+    var definitions = mutable.ArrayBuffer[EntityDefinition]()
     def output( s : SyntaxSink )
     {
         accessModifier.output(s)
         modifier.output(s)
         kind.output(s)
         name.foreach( n => s.push(n) )
+        
+        s.push("(")
+        var first = true
+        ctorParams.foreach( p => {
+            if ( first ) first = false
+            else s.push(",")
+
+            p.output(s)
+        } )
+        s.push(")")
+        
         superType.foreach( t =>
         {
             s.push("extends")
@@ -246,7 +303,7 @@ class ConcreteType(
         
         s inScope
         {
-            valueDefinitions.foreach( v => v.output(s) )
+            definitions.foreach( v => v.output(s) )
         }
     }
 }
@@ -263,7 +320,7 @@ class TypeGenerator( val name : String, val superType : Option[String], val mixi
             new TypeModifierTag( false, false ) )
         val kinds = Array( new TraitKindTag(), new ObjectKindTag(), new ClassKindTag(), new AbstractClassKindTag() )
         
-        for ( am <- accessModifiers; m <- modifiers; k <- kinds ) yield new ConcreteType( Some(name), am, m, k, superType, mixins )
+        for ( am <- accessModifiers; m <- modifiers; k <- kinds ) yield new ConcreteType( Some(name), am, m, k, List(), superType, mixins )
     }
 }
 
@@ -271,13 +328,14 @@ object Main extends scala.App
 {
     override def main(args : Array[String])
     {
+        // A class and exhaustive inheritance
         {
             val s = new SyntaxSink()
-            val ct = new ConcreteType( Some("Blah"), new PrivateAccessTag(), new TypeModifierTag( isFinal=true, isSealed=false ), new ClassKindTag(), None, List() )
+            val ct = new ConcreteType( Some("Blah"), new PrivateAccessTag(), new TypeModifierTag( isFinal=true, isSealed=false ), new ClassKindTag(), List(), None, List() )
             // ValueDefinition( val name : String, val modifier : ValueModifierTag, val vType : Option[AnyTypeType], val expression : Option[ExprType] )
-            ct.valueDefinitions.append( new ValueDefinition( "a", new VarValueTag(), Some( new IntType() ), None ) )
-            ct.valueDefinitions.append( new ValueDefinition( "b", new VarValueTag(), Some( new IntType() ), Some( new ConstantExpr(3) ) ) )
-            ct.valueDefinitions.append( new ValueDefinition( "c", new ValValueTag(), None, Some( new ConstantExpr(5) ) ) )
+            ct.definitions.append( new ValueDefinition( "a", new VarValueTag(), Some( new IntType() ), None, false ) )
+            ct.definitions.append( new ValueDefinition( "b", new VarValueTag(), Some( new IntType() ), Some( new ConstantExpr(3) ), false ) )
+            ct.definitions.append( new ValueDefinition( "c", new ValValueTag(), None, Some( new ConstantExpr(5) ), false ) )
             ct.output(s)
             
             val tg = new TypeGenerator( "Foo", Some("Blah"), List() )
@@ -287,22 +345,36 @@ object Main extends scala.App
             }
         }
         
+        // A hierarchy with a defined function
         {
             val s = new SyntaxSink()
-            val ct = new ConcreteType( Some("Base"), new PublicAccessTag(), new TypeModifierTag( false, false ), new AbstractClassKindTag(), None, List() )
+            val ct = new ConcreteType( Some("Base"), new PublicAccessTag(), new TypeModifierTag( false, false ), new AbstractClassKindTag(), List(), None, List() )
             
-            val ctd1 = new ConcreteType( Some("D1"), new PublicAccessTag(), new TypeModifierTag( false, false ), new AbstractClassKindTag(), Some("Base"), List() )
+            val ctd1 = new ConcreteType( Some("D1"), new PublicAccessTag(), new TypeModifierTag( false, false ), new AbstractClassKindTag(), List(), Some("Base"), List() )
             
-            val ctd2 = new ConcreteType( Some("D2"), new PublicAccessTag(), new TypeModifierTag( false, false ), new ClassKindTag(), Some("D1"), List() )
-            ct.valueDefinitions.append( new MethodDefinition( "fn", new PublicAccessTag(), List(
-                new ValueDefinition( "a", new NoneValueTag(), Some( new IntType() ), None ),
-                new ValueDefinition( "b", new NoneValueTag(), Some( new IntType() ), None ) ),
+            val ctd2 = new ConcreteType( Some("D2"), new PublicAccessTag(), new TypeModifierTag( false, false ), new ClassKindTag(), List(), Some("D1"), List() )
+            
+            val innerClass = new ConcreteType( Some("Inner"), new PublicAccessTag(), new TypeModifierTag( true, true ), new ClassKindTag(), List( new ValueDefinition( "increment", new NoneValueTag(), Some( new IntType() ), None, false ) ), None, List() )
+            innerClass.definitions.append( new MethodDefinition( "apply", new PublicAccessTag(), List(
+                new ValueDefinition( "x", new NoneValueTag(), Some( new IntType() ), None, false ) ),
+                None,
+                Some( new BinOpExpr( new IdentExpr( "increment" ), new IdentExpr( "x" ), "+" ) ) ) )
+            
+            ct.definitions.append( new MethodDefinition( "fn", new PublicAccessTag(), List(
+                new ValueDefinition( "a", new NoneValueTag(), Some( new IntType() ), None, false ),
+                new ValueDefinition( "b", new NoneValueTag(), Some( new IntType() ), None, false ),
+                new ValueDefinition( "c", new NoneValueTag(), Some( new IntType() ), None, false ) ),
                 None,
                 Some( new BlockExpr( List(
+                    new ConcreteTypeDefinition( innerClass ),
+                    new ValueDefinition( "op", new ValValueTag(), None, Some(
+                        new NewExpr( "Inner", List( new IdentExpr("a") ) ) ), false ),
+ 
                     new ValueDefinition( "res", new ValValueTag(), None, Some(
-                        new BinOpExpr( new IdentExpr("a"), new IdentExpr("b"), "+" ) ) ),
-                    new IdentExpr( "res" ) )
-                ) ) ) )
+                        new MethodCallExpr( new IdentExpr("op"), "apply", List( new IdentExpr("b") ) ) ), true ),
+
+                    new BinOpExpr( new IdentExpr( "res" ), new IdentExpr("c"), "*" )
+                ) ) ) ) )
             
             ct.output(s)
             ctd1.output(s)
