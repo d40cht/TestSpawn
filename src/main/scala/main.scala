@@ -17,13 +17,21 @@ class TypeGenerator( val name : String, val superType : Option[String], val mixi
     {
         val accessModifiers = Array( new PrivateAccessTag(), new PublicAccessTag(), new ProtectedAccessTag() )
         val modifiers = Array(
-            new TypeModifierTag( false, false ),
-            new TypeModifierTag( false, true ),
-            new TypeModifierTag( true, false ),
-            new TypeModifierTag( false, false ) )
+            new TypeModifierTag( isFinal=false, isSealed=false ),
+            new TypeModifierTag( isFinal=false, isSealed=true ),
+            new TypeModifierTag( isFinal=true, isSealed=false ),
+            new TypeModifierTag( isFinal=false, isSealed=false ) )
+            
         val kinds = Array( new TraitKindTag(), new ObjectKindTag(), new ClassKindTag(), new AbstractClassKindTag() )
         
-        for ( am <- accessModifiers; m <- modifiers; k <- kinds ) yield new ConcreteType( Some(name), am, m, k, List(), superType, mixins )
+        for ( am <- accessModifiers; m <- modifiers; k <- kinds ) yield new ConcreteType(
+            name=Some(name),
+            accessModifier=am,
+            modifier=m,
+            kind=k,
+            ctorParams=List(),
+            superType=superType,
+            mixins=mixins )
     }
 }
 
