@@ -1,7 +1,7 @@
 import scala.collection.{mutable, immutable}
 
 // Writer for outputing syntax to file
-class SyntaxSink
+class SyntaxSink( write : String => Unit )
 {
     var indent = 0
     var doIndent = true
@@ -10,15 +10,15 @@ class SyntaxSink
     {
         if ( doIndent )
         {
-            print( " " * (indent*4) )
+            write( " " * (indent*4) )
             doIndent = false
         }
-        print( token + " " )
+        write( token + " " )
     }
     
     def eol()
     {
-        print( "\n" )
+        write( "\n" )
         doIndent = true
     }
     
@@ -74,7 +74,7 @@ trait AnyRefType extends AnyTypeType
 trait AccessModifierTag extends SyntaxGenerator
 class PrivateAccessTag extends AccessModifierTag { def output( s : SyntaxSink ) { s.push( "private" ) } }
 class ProtectedAccessTag extends AccessModifierTag { def output( s : SyntaxSink ) { s.push( "protected" ) } }
-class PublicAccessTag extends AccessModifierTag { def output( s : SyntaxSink ) { s.push( "public" ) } }
+class PublicAccessTag extends AccessModifierTag { def output( s : SyntaxSink ) {} }
 
 
 class TupleType( val elements : List[ExprType] ) extends AnyRefType
@@ -258,9 +258,12 @@ class ConcreteType(
         kind.output(s)
         name.foreach( n => s.push(n) )
         
-        s.push("(")
-        s.commaSeparated( ctorParams )
-        s.push(")")
+        if ( !ctorParams.isEmpty )
+        {
+            s.push("(")
+            s.commaSeparated( ctorParams )
+            s.push(")")
+        }
         
         superType.foreach( t =>
         {

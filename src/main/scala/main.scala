@@ -11,11 +11,12 @@ import scala.collection.{mutable, immutable}
 
 */
 
+
 class TypeGenerator( val name : String, val superType : Option[String], val mixins : List[String] )
 {
     def exhaustive =
     {
-        val accessModifiers = Array( new PrivateAccessTag(), new PublicAccessTag(), new ProtectedAccessTag() )
+        val accessModifiers = Array( new PublicAccessTag(), new ProtectedAccessTag(), new PrivateAccessTag() )
         val modifiers = Array(
             new TypeModifierTag( isFinal=false, isSealed=false ),
             new TypeModifierTag( isFinal=false, isSealed=true ),
@@ -75,15 +76,39 @@ object Main extends scala.App
             obj.apply( a, b )
         }
     }
+    
+    class MyType
+    def interpret( fragment : String )
+    {
+        import scala.tools.nsc.interpreter.Results._
+        
+        val settings = new scala.tools.nsc.Settings()
+        settings.embeddedDefaults[MyType]
+        val out = new java.io.StringWriter()
+        val interpreter = new scala.tools.nsc.Interpreter(settings, new java.io.PrintWriter(out))
+        
+        val res = interpreter.interpret( fragment )
+        
+        res match
+        {
+            case Success => println( "Success" )
+            case Error => 
+            {
+                println( "Error: " + out.toString )
+            }
+            case Incomplete =>
+        }
+    }
+
 
     def singleInheritanceOverrideCombinations()
     {
-        val s = new SyntaxSink()
+        
         val tg = new TypeGenerator(name="Base", superType=None, mixins=List() )
         
-        for ( bat <- List[AccessModifierTag]( new PrivateAccessTag(), new PublicAccessTag(), new ProtectedAccessTag() ) )
+        for ( bat <- List[AccessModifierTag]( new PublicAccessTag(), new ProtectedAccessTag(), new PrivateAccessTag() ) )
         {
-            for ( dat <- List[AccessModifierTag]( new PrivateAccessTag(), new PublicAccessTag(), new ProtectedAccessTag() ) )
+            for ( dat <- List[AccessModifierTag]( new PublicAccessTag(), new ProtectedAccessTag(), new PrivateAccessTag() ) )
             {
                 // Override with val, lazy val, def
                 val overrides = List(
@@ -100,7 +125,7 @@ object Main extends scala.App
                         modifier= new ValValueTag(),
                         vType=Some( new IntType() ),
                         expression = Some( new ConstantExpr( 3 ) ),
-                        isLazy=false ),
+                        isLazy=true ),
                     new MethodDefinition(
                         name="fn",
                         accessModifier=dat,
@@ -124,8 +149,15 @@ object Main extends scala.App
                         {
                             d.definitions.append( ot )
                             
+                            val tokens = new mutable.ArrayBuffer[String]()
+                            val s = new SyntaxSink( tokens.append(_) )
                             b.output(s)
                             d.output(s)
+                            
+                            println( "***********************************************************" )
+                            val fragment = tokens.mkString("")
+                            print( fragment )
+                            interpret( fragment )
                         }
                     }
                 }
@@ -135,7 +167,7 @@ object Main extends scala.App
     
     def experimenting()
     {
-        val s = new SyntaxSink()
+        val s = new SyntaxSink( print(_) )
         val ct = new ConcreteType( Some("Base"), new PublicAccessTag(), new TypeModifierTag( false, false ), new AbstractClassKindTag(), List(), None, List() )
         
         val ctd1 = new ConcreteType( Some("D1"), new PublicAccessTag(), new TypeModifierTag( false, false ), new AbstractClassKindTag(), List(), Some("Base"), List() )
@@ -181,10 +213,12 @@ object Main extends scala.App
        * Anything which uses the pattern matcher
        * Anything with structural types.
     */
+    
 
     override def main(args : Array[String])
     {
-        experimenting()
+        //tryInterpreter()
+        //experimenting()
         singleInheritanceOverrideCombinations()
     }
 }
